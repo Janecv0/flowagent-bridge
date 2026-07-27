@@ -477,13 +477,21 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (!req.url?.startsWith('/mcp')) {
-    res.writeHead(404).end('not found');
-    return;
+    // JSON, not plain text: MCP clients probe unknown paths (OAuth discovery among them)
+    // and parse the body as JSON, so `not found` produces a misleading parse error in
+    // their logs instead of a clean 404.
+    return sendJson(res, 404, rpcError(-32601, 'Not found'));
   }
 
   if (PRODUCTION && !secretMatches(req.headers['x-bridge-secret'])) {
-    log('[auth] rejected request with bad or missing bridge secret');
-    return sendJson(res, 401, rpcError(-32001, 'Unauthorized'));
+    // Deliberately 404, NOT 401/403. LibreChat's OAuth detection sends a bare HEAD probe
+    // with none of the configured headers; any 401/403 it sees is taken as an OAuth
+    // challenge (MCP_OAUTH_ON_AUTH_ERROR), after which it refuses to use the working
+    // authenticated connection and fails hunting for OAuth endpoints that do not exist.
+    // A 404 also avoids advertising that a protected endpoint lives here at all, which
+    // suits an unlisted service on a private network.
+    log(`[auth] rejected ${req.method} ${req.url} — bad or missing bridge secret`);
+    return sendJson(res, 404, rpcError(-32601, 'Not found'));
   }
 
   try {
