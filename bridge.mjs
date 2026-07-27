@@ -26,7 +26,10 @@ import { mkdir, access } from 'node:fs/promises';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
-const PORT = Number(process.env.FLOWAGENT_BRIDGE_PORT || 8791);
+// PORT first: Railway (and most PaaS) assign the port they route and health-check on via
+// PORT, and a service listening anywhere else just looks dead. FLOWAGENT_BRIDGE_PORT stays
+// supported for local runs where PORT is often already taken by something else.
+const PORT = Number(process.env.PORT || process.env.FLOWAGENT_BRIDGE_PORT || 8791);
 // Default to '::' (dual-stack) because Railway's private network is IPv6-only — a
 // service bound to 0.0.0.0 is unreachable over *.railway.internal. Local dev overrides
 // this to the docker0 address so the unauthenticated dev mode isn't exposed to the LAN.
@@ -424,7 +427,15 @@ function resolveUserId(req, res) {
   return null;
 }
 
-async function healthPayload() {
+/**
+ * Dependency probes run ONCE at boot and are cached. `az version` cold-starts a Python
+ * runtime and can take seconds, so probing per request would make /health slow enough to
+ * fail a platform health check on a container that is actually fine. These are image
+ * properties, not runtime state — they cannot change without a redeploy.
+ */
+const dependencies = { azCli: false, engineBundle: false };
+
+async function probeDependencies() {
   const [azOk, engineOk] = await Promise.all([
     new Promise((resolve) => {
       const probe = spawn('az', ['version'], { stdio: 'ignore' });
@@ -433,12 +444,18 @@ async function healthPayload() {
     }),
     access(new URL('./vendor/mcp.mjs', import.meta.url)).then(() => true, () => false),
   ]);
+  dependencies.azCli = azOk;
+  dependencies.engineBundle = engineOk;
+  if (!azOk) log('WARNING: `az` is not runnable — every tool call will fail. Broken image?');
+  if (!engineOk) log('WARNING: vendor/mcp.mjs is missing — every session will fail. Broken image?');
+}
 
+function healthPayload() {
   return {
-    status: azOk && engineOk ? 'ok' : 'degraded',
+    status: dependencies.azCli && dependencies.engineBundle ? 'ok' : 'degraded',
     mode: PRODUCTION ? 'production' : 'dev',
-    azCli: azOk,
-    engineBundle: engineOk,
+    azCli: dependencies.azCli,
+    engineBundle: dependencies.engineBundle,
     sessions: sessions.size,
     pendingLogins: logins.size,
   };
@@ -446,7 +463,7 @@ async function healthPayload() {
 
 const server = http.createServer(async (req, res) => {
   if (req.url === '/health') {
-    const payload = await healthPayload();
+    const payload = healthPayload();
     return sendJson(res, payload.status === 'ok' ? 200 : 503, payload);
   }
 
@@ -494,6 +511,10 @@ const reaper = setInterval(() => {
 }, REAPER_INTERVAL_MS);
 reaper.unref();
 
+// Probe before listening so the first health check already reflects reality, rather than
+// reporting a false 'degraded' and failing a deploy that would otherwise be fine.
+await probeDependencies();
+
 server.listen(PORT, HOST, () => {
   log(`FlowAgent MCP bridge listening on http://${HOST}:${PORT}/mcp`);
   log(
@@ -501,6 +522,7 @@ server.listen(PORT, HOST, () => {
       ? `mode=production (auth enforced, fail-closed, per-user Azure identity) usersRoot=${USERS_ROOT}`
       : "mode=dev (no auth; ALL users share this host's az login — never deploy this way)",
   );
+  log(`dependencies: az=${dependencies.azCli} engineBundle=${dependencies.engineBundle}`);
   if (!TENANT_ID) log('WARNING: no AZURE_TENANT_ID/PA_TENANT_ID set — az login will not be tenant-scoped');
 });
 

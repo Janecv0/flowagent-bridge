@@ -96,7 +96,8 @@ If LibreChat starts before the bridge, it stores a stub and the tools stay missi
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `FLOWAGENT_BRIDGE_PORT` | `8791` | Listen port |
+| `PORT` | — | Listen port. Takes precedence — most platforms (Railway, Heroku, Fly) assign the port they route and health-check on here, and a service bound elsewhere looks dead |
+| `FLOWAGENT_BRIDGE_PORT` | `8791` | Listen port fallback, for local runs where `PORT` is already taken |
 | `FLOWAGENT_BRIDGE_HOST` | `::` | Bind address. `::` is required on Railway (IPv6-only private network) |
 | `USERS_ROOT` | `/data/pa-users` | Per-user Azure config dirs (production only) |
 | `BRIDGE_SHARED_SECRET` | — | Enables production mode |
