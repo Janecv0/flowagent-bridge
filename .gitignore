@@ -1,0 +1,15 @@
+node_modules/
+*.log
+
+# Deployment-specific and internal documents — kept local, never published.
+# These name real tenants, service names, private hostnames and sign-in identifiers.
+DEPLOY.md
+CONDITIONAL-ACCESS-REQUEST.md
+
+# Never commit per-user Azure token caches. In deployment these live on the Railway
+# Volume at /data/pa-users, but a local run with USERS_ROOT unset or pointed here would
+# write real refresh tokens into the working tree.
+pa-users/
+.azure/
+.env
+.env.*
