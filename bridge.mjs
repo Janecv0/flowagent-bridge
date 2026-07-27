@@ -29,7 +29,16 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 // PORT first: Railway (and most PaaS) assign the port they route and health-check on via
 // PORT, and a service listening anywhere else just looks dead. FLOWAGENT_BRIDGE_PORT stays
 // supported for local runs where PORT is often already taken by something else.
+//
+// Railway injects PORT automatically, so it silently overrides FLOWAGENT_BRIDGE_PORT there.
+// That is the right precedence — the health check follows PORT — but it is confusing enough
+// to have cost a deploy, so PORT_SOURCE is logged at startup.
 const PORT = Number(process.env.PORT || process.env.FLOWAGENT_BRIDGE_PORT || 8791);
+const PORT_SOURCE = process.env.PORT
+  ? 'PORT'
+  : process.env.FLOWAGENT_BRIDGE_PORT
+    ? 'FLOWAGENT_BRIDGE_PORT'
+    : 'default';
 // Default to '::' (dual-stack) because Railway's private network is IPv6-only — a
 // service bound to 0.0.0.0 is unreachable over *.railway.internal. Local dev overrides
 // this to the docker0 address so the unauthenticated dev mode isn't exposed to the LAN.
@@ -516,7 +525,15 @@ reaper.unref();
 await probeDependencies();
 
 server.listen(PORT, HOST, () => {
-  log(`FlowAgent MCP bridge listening on http://${HOST}:${PORT}/mcp`);
+  log(`FlowAgent MCP bridge listening on http://${HOST}:${PORT}/mcp (port from ${PORT_SOURCE})`);
+  if (PORT_SOURCE === 'PORT' && process.env.FLOWAGENT_BRIDGE_PORT && Number(process.env.FLOWAGENT_BRIDGE_PORT) !== PORT) {
+    log(
+      `WARNING: FLOWAGENT_BRIDGE_PORT=${process.env.FLOWAGENT_BRIDGE_PORT} is being IGNORED because PORT=${process.env.PORT} takes precedence. ` +
+        'Whatever calls this bridge must use ' +
+        PORT +
+        ' — set PORT instead.',
+    );
+  }
   log(
     PRODUCTION
       ? `mode=production (auth enforced, fail-closed, per-user Azure identity) usersRoot=${USERS_ROOT}`
