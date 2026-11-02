@@ -46,27 +46,29 @@ No device code, no Azure CLI login, no refresh tokens held by the bridge.
 |---|---|
 | `bridge.mjs` | HTTP server, token validation, OBO token broker, per-user sessions |
 | `bin/az` | Stand-in for the Azure CLI inside engine children (production only) |
-| `launch.mjs` | Works around an upstream crash in the engine bundle, then imports it |
+| `launch.mjs` | Imports the engine; its crash workaround is redundant since v3.2.10 |
 | `vendor/mcp.mjs` | Vendored copy of Microsoft's engine bundle |
 | `Dockerfile` | `node:24.16.0-slim`; no Azure CLI (~370 MB) |
 
 ### Why `launch.mjs` exists
 
-`node vendor/mcp.mjs` crashes immediately with
-`Dynamic require of "buffer" is not supported`. The bundle's esbuild `__require` shim has
-no fallback for Node builtins, which its inlined CommonJS deps (safe-buffer → jws →
-jsonwebtoken) require at load time. `launch.mjs` defines `globalThis.require` before
-importing, which satisfies the shim without patching the vendored file.
-
-**This is an upstream bug**, reproducible from a clean checkout — Microsoft's own `/setup`
-skill would hit it too. Re-verify the shim after re-vendoring a newer bundle.
+Engine bundles up to 2026-07-22 crashed on start with
+`Dynamic require of "buffer" is not supported`: the bundle's esbuild `__require` shim had
+no fallback for Node builtins that its inlined CommonJS deps required at load time.
+`launch.mjs` defines `globalThis.require` before importing, which satisfied the shim
+without patching the vendored file. Microsoft fixed this upstream — v3.2.10 starts with
+plain `node vendor/mcp.mjs` — so the workaround is now redundant but harmless.
 
 ### Re-vendoring
+
+Vendored: **v3.2.10** (upstream commit `51856637`, 2026-10-27).
 
 ```bash
 cp ../power-platform-skills/plugins/power-automate/server/mcp.mjs vendor/mcp.mjs
 node launch.mjs   # must print "FlowAgent MCP server running on stdio (N tools)"
-grep -n 'spawnSync[0-9]*("az"' vendor/mcp.mjs   # bin/az answers these; check none is new
+grep -n 'spawnSync[0-9]*("az"' vendor/mcp.mjs
+# expected: account get-access-token + account show (answered by bin/az),
+# cloud show + version (fail harmlessly). Anything else needs handling in bin/az.
 ```
 
 `vendor/mcp.mjs` is an unmodified copy from

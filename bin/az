@@ -7,8 +7,9 @@
 // obtains it with the On-Behalf-Of flow from the signed-in user's own Entra token — so the
 // engine acts as that user, with no Azure CLI login and no device code anywhere.
 //
-// Only the two commands the token path needs are answered. Anything else (the engine also
-// probes `az cloud show`) fails, which the engine treats as "commercial cloud" — correct here.
+// Only the two commands the token path needs are answered. Anything else fails: the engine
+// reads a failed `az cloud show` as "commercial cloud" (correct here), and `az version`
+// only feeds its diagnostic doctor tool, which counts a clean exit code as installed.
 import http from 'node:http';
 
 const args = process.argv.slice(2);
