@@ -1,16 +1,7 @@
-# Debian-based rather than the node:*-alpine used elsewhere in this project: the Azure
-# CLI's supported install path is Microsoft's apt script, and several of its pinned
-# Python dependencies ship no musl wheels, so Alpine forces a slow from-source build
-# needing a full toolchain. The `az` binary is a hard runtime requirement here — the
-# FlowAgent engine shells out to it for every token — so this base is not negotiable.
+# No Azure CLI in the image: in production the engine's `az` calls are answered by bin/az,
+# which fetches On-Behalf-Of tokens from the bridge. That also drops the ~1 GB of Python the
+# CLI used to bring along.
 FROM node:24.16.0-slim
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl apt-transport-https gnupg lsb-release \
-    && curl -sL https://aka.ms/InstallAzureCLIDeb | bash \
-    && apt-get purge -y curl gnupg lsb-release apt-transport-https \
-    && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -18,12 +9,16 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 COPY bridge.mjs launch.mjs ./
+COPY bin/ ./bin/
 COPY vendor/ ./vendor/
+# The engine runs `az` by name through PATH, so the stand-in must be executable regardless
+# of the permissions the build context happened to carry.
+RUN chmod 755 bin/az
 
 ENV NODE_ENV=production
 EXPOSE 8791
 
-# Runs as root because the Railway Volume is mounted root-owned and the per-user token
-# directories are created at runtime. Nothing in the container is reachable except the
-# bridge's own authenticated HTTP port, and no public domain is attached to the service.
+# Runs as root because the per-user directories under USERS_ROOT (default /data/pa-users)
+# are created at runtime, and a mounted volume there is root-owned. Nothing in the container
+# is reachable except the bridge's own authenticated HTTP port.
 CMD ["node", "bridge.mjs"]

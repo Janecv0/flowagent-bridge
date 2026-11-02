@@ -1,0 +1,60 @@
+#!/usr/bin/env node
+// Stand-in for the Azure CLI inside engine children (production only).
+//
+// The FlowAgent engine gets every token by running `az account get-access-token --resource X`
+// and has no other way to receive one. In production the bridge puts this directory first on
+// the engine's PATH, so those calls land here instead. The token comes from the bridge, which
+// obtains it with the On-Behalf-Of flow from the signed-in user's own Entra token — so the
+// engine acts as that user, with no Azure CLI login and no device code anywhere.
+//
+// Only the two commands the token path needs are answered. Anything else (the engine also
+// probes `az cloud show`) fails, which the engine treats as "commercial cloud" — correct here.
+import http from 'node:http';
+
+const args = process.argv.slice(2);
+
+function fail(message) {
+  process.stderr.write(`ERROR: ${message}\n`);
+  process.exit(1);
+}
+
+if (args[0] === 'account' && args[1] === 'show') {
+  process.stdout.write(`${process.env.PA_TENANT_ID ?? ''}\n`);
+  process.exit(0);
+}
+
+if (args[0] !== 'account' || args[1] !== 'get-access-token') {
+  fail(`flowagent-bridge: unsupported command "az ${args.join(' ')}"`);
+}
+
+const resource = args[args.indexOf('--resource') + 1];
+const socketPath = process.env.FLOWAGENT_BRIDGE_TOKEN_SOCKET;
+const key = process.env.FLOWAGENT_BRIDGE_TOKEN_KEY;
+if (!resource || !socketPath || !key) fail('flowagent-bridge: token broker is not configured');
+
+const req = http.request(
+  {
+    socketPath,
+    method: 'GET',
+    path: `/token?resource=${encodeURIComponent(resource)}`,
+    headers: { 'x-flowagent-key': key },
+  },
+  (res) => {
+    const chunks = [];
+    res.on('data', (c) => chunks.push(c));
+    res.on('end', () => {
+      let body;
+      try {
+        body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      } catch {
+        fail(`flowagent-bridge: unreadable token broker response (HTTP ${res.statusCode})`);
+      }
+      // The engine maps AADSTS codes in this first line to its own error categories, so the
+      // broker's error text is passed through unchanged.
+      if (res.statusCode !== 200) fail(body.error ?? `flowagent-bridge: token broker HTTP ${res.statusCode}`);
+      process.stdout.write(JSON.stringify({ accessToken: body.accessToken, expiresOn: body.expiresOn, tokenType: 'Bearer' }));
+    });
+  },
+);
+req.on('error', (err) => fail(`flowagent-bridge: token broker unreachable: ${err.message}`));
+req.end();
