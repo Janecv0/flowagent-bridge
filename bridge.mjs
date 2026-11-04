@@ -163,6 +163,9 @@ function engineEnv(auth) {
       ? {}
       : {
           FLOWAGENT_DISABLE_DISK_CACHE: '1',
+          // Read by the image's patched engine (scripts/patch-engine.mjs): connection tools
+          // then get their api.powerplatform.com token from bin/az instead of a browser.
+          FLOWAGENT_CONNECTIVITY_VIA_AZ: '1',
           FLOWAGENT_BRIDGE_TOKEN_SOCKET: TOKEN_SOCKET,
           FLOWAGENT_BRIDGE_TOKEN_KEY: auth.key,
         }),

@@ -49,6 +49,7 @@ No device code, no Azure CLI login, no refresh tokens held by the bridge.
 | `bin/xdg-open` | Fails the engine's interactive browser sign-in at once instead of hanging (production only) |
 | `launch.mjs` | Imports the engine; its crash workaround is redundant since v3.2.10 |
 | `vendor/mcp.mjs` | Vendored copy of Microsoft's engine bundle |
+| `scripts/patch-engine.mjs` | Run by the Dockerfile: lets connection tools get their token through `bin/az` |
 | `Dockerfile` | `node:24.16.0-slim`; no Azure CLI (~370 MB) |
 
 ### Why `launch.mjs` exists
@@ -70,6 +71,8 @@ node launch.mjs   # must print "FlowAgent MCP server running on stdio (N tools)"
 grep -n 'spawnSync[0-9]*("az"' vendor/mcp.mjs
 # expected: account get-access-token + account show (answered by bin/az),
 # cloud show + version (fail harmlessly). Anything else needs handling in bin/az.
+cp vendor/mcp.mjs /tmp/mcp-check.mjs && node scripts/patch-engine.mjs /tmp/mcp-check.mjs
+# must succeed, or the image build fails; see "Connection tools" below.
 ```
 
 `vendor/mcp.mjs` is an unmodified copy from
@@ -119,6 +122,9 @@ own `az login`; a local LibreChat with email login must point at it **without** 
      - Power Automate service (Microsoft Flow Service): `Flows.Read.All`, `Flows.Manage.All`
      - Dynamics CRM: `user_impersonation` (desktop flows, connection references)
      - Microsoft Graph: `User.ReadBasic.All` (user search)
+     - Power Platform API: `Connectivity.Connections.Read`, `Connectivity.Connectors.Read`
+       (connection tools). If *Power Platform API* is missing from the picker, create its
+       service principal first: `az ad sp create --id 8578e004-a5c6-46e7-913e-12f58912df43`.
 3. **LibreChat's own app registration** (the one users sign in to LibreChat with): add the
    delegated permission `api://<bridge-client-id>/access_as_user` and grant admin consent.
 
@@ -191,13 +197,15 @@ call per resource logs `[obo] user=… scope=… ok` or the AADSTS error. What t
 - **Conditional Access**: device-code blocks do not apply. Device and MFA state should carry
   over from the user's LibreChat sign-in (reported, not documented); check the sign-in logs
   for any location policy evaluated against the bridge's outbound IP.
-- **Connection-management tools** (listing, picking and creating connections) use a separate
-  interactive MSAL login for `api.powerplatform.com` inside the engine, not `az`, so they
-  cannot work in a container. Left alone they hang until LibreChat's `-32001 Request timed
-  out`, and block every later call of that kind. `bin/xdg-open` answers MSAL's localhost
-  listener with `error=interaction_required` the moment the engine tries to open a browser,
-  so the call fails in under a second and the user is told to create the connection at
-  make.powerautomate.com. Only calls that really reach the browser step are affected.
+- **Connection tools** (`list_connections`, `pick_or_create_connection`, `test_connection`,
+  `resolve_refs`, …) need a token for `api.powerplatform.com`. Upstream, the engine gets it
+  from its own interactive MSAL browser sign-in, never from `az`, which cannot work in a
+  container. `scripts/patch-engine.mjs` (run at image build) adds a switch the bridge sets in
+  production, `FLOWAGENT_CONNECTIVITY_VIA_AZ`, that sends this resource through `bin/az` and
+  OBO like every other. It needs the Power Platform API permissions above. Should the engine
+  still reach the browser step, `bin/xdg-open` answers MSAL's localhost listener with
+  `error=interaction_required`, so the call fails in under a second, not at LibreChat's
+  `-32001 Request timed out`.
 
 ## Error messages users see
 

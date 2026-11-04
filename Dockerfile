@@ -14,6 +14,10 @@ COPY vendor/ ./vendor/
 # The engine runs `az` and `xdg-open` by name through PATH, so the stand-ins must be
 # executable regardless of the permissions the build context happened to carry.
 RUN chmod 755 bin/az bin/xdg-open
+# Routes the engine's connection-management tokens through bin/az (see the script). Fails the
+# build if a re-vendored engine no longer contains the line it patches.
+COPY scripts/patch-engine.mjs ./scripts/
+RUN node scripts/patch-engine.mjs vendor/mcp.mjs
 
 ENV NODE_ENV=production
 EXPOSE 8791

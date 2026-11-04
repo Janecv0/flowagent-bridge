@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // Stand-in for xdg-open inside engine children (production only), next to bin/az.
 //
-// A few engine tools (listing, picking and creating connections) do not use `az` for their
-// token. They run an interactive MSAL sign-in for https://api.powerplatform.com instead: MSAL
+// Upstream, a few engine tools (listing, picking and creating connections) do not use `az` for
+// their token. scripts/patch-engine.mjs routes them through `az` in production, so this is now
+// a fallback for any path that still reaches the browser step. Upstream, they run an
+// interactive MSAL sign-in for https://api.powerplatform.com instead: MSAL
 // listens on a localhost redirect URI and the engine "opens a browser" with xdg-open. In a
 // container no browser exists, the engine prints "Open this URL manually", and MSAL waits for
 // a redirect that can never arrive. Its queue then blocks every later call of that kind until
