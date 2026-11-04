@@ -1,0 +1,47 @@
+#!/usr/bin/env node
+// Stand-in for xdg-open inside engine children (production only), next to bin/az.
+//
+// A few engine tools (listing, picking and creating connections) do not use `az` for their
+// token. They run an interactive MSAL sign-in for https://api.powerplatform.com instead: MSAL
+// listens on a localhost redirect URI and the engine "opens a browser" with xdg-open. In a
+// container no browser exists, the engine prints "Open this URL manually", and MSAL waits for
+// a redirect that can never arrive. Its queue then blocks every later call of that kind until
+// LibreChat gives up with "MCP error -32001: Request timed out".
+//
+// This stand-in answers MSAL's own localhost listener with a standard OAuth error response
+// (error=interaction_required, plus the request's state), so MSAL rejects that one sign-in at
+// once and the tool returns an error the bridge rewrites into a clear message. Because it only
+// runs when the engine actually tries to open a browser, slow-but-working calls are never cut
+// off. It only ever contacts a loopback address.
+const MARKER = 'flowagent-bridge: browser sign-in is not available inside the bridge';
+
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+
+function fail(message) {
+  process.stderr.write(`flowagent-bridge xdg-open: ${message}\n`);
+  process.exit(1);
+}
+
+let target;
+try {
+  const authorize = new URL(process.argv[2] ?? '');
+  const redirect = authorize.searchParams.get('redirect_uri');
+  if (!redirect) throw new Error('no redirect_uri in the URL');
+  target = new URL(redirect);
+  if (target.protocol !== 'http:' || !LOOPBACK.has(target.hostname)) {
+    throw new Error(`refusing non-loopback redirect ${target.protocol}//${target.hostname}`);
+  }
+  target.searchParams.set('error', 'interaction_required');
+  target.searchParams.set('error_description', MARKER);
+  const state = authorize.searchParams.get('state');
+  if (state) target.searchParams.set('state', state);
+} catch (e) {
+  fail(e.message);
+}
+
+try {
+  const res = await fetch(target, { signal: AbortSignal.timeout(5000) });
+  await res.arrayBuffer();
+} catch (e) {
+  fail(`could not reach the sign-in listener: ${e.message}`);
+}

@@ -46,6 +46,7 @@ No device code, no Azure CLI login, no refresh tokens held by the bridge.
 |---|---|
 | `bridge.mjs` | HTTP server, token validation, OBO token broker, per-user sessions |
 | `bin/az` | Stand-in for the Azure CLI inside engine children (production only) |
+| `bin/xdg-open` | Fails the engine's interactive browser sign-in at once instead of hanging (production only) |
 | `launch.mjs` | Imports the engine; its crash workaround is redundant since v3.2.10 |
 | `vendor/mcp.mjs` | Vendored copy of Microsoft's engine bundle |
 | `Dockerfile` | `node:24.16.0-slim`; no Azure CLI (~370 MB) |
@@ -190,8 +191,13 @@ call per resource logs `[obo] user=… scope=… ok` or the AADSTS error. What t
 - **Conditional Access**: device-code blocks do not apply. Device and MFA state should carry
   over from the user's LibreChat sign-in (reported, not documented); check the sign-in logs
   for any location policy evaluated against the bridge's outbound IP.
-- **Connection-management tools** (create/consent connections) use a separate interactive
-  MSAL login inside the engine and do not work in a container — unchanged from before.
+- **Connection-management tools** (listing, picking and creating connections) use a separate
+  interactive MSAL login for `api.powerplatform.com` inside the engine, not `az`, so they
+  cannot work in a container. Left alone they hang until LibreChat's `-32001 Request timed
+  out`, and block every later call of that kind. `bin/xdg-open` answers MSAL's localhost
+  listener with `error=interaction_required` the moment the engine tries to open a browser,
+  so the call fails in under a second and the user is told to create the connection at
+  make.powerautomate.com. Only calls that really reach the browser step are affected.
 
 ## Error messages users see
 

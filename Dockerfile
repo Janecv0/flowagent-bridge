@@ -11,9 +11,9 @@ RUN npm ci --omit=dev
 COPY bridge.mjs launch.mjs ./
 COPY bin/ ./bin/
 COPY vendor/ ./vendor/
-# The engine runs `az` by name through PATH, so the stand-in must be executable regardless
-# of the permissions the build context happened to carry.
-RUN chmod 755 bin/az
+# The engine runs `az` and `xdg-open` by name through PATH, so the stand-ins must be
+# executable regardless of the permissions the build context happened to carry.
+RUN chmod 755 bin/az bin/xdg-open
 
 ENV NODE_ENV=production
 EXPOSE 8791

@@ -200,6 +200,11 @@ function closeSession(id) {
  */
 const AUTH_REWRITES = [
   {
+    // bin/xdg-open refused the engine's interactive browser sign-in (connection tools).
+    match: /browser sign-in is not available inside the bridge/i,
+    text: "This step needs a separate Microsoft sign-in in a browser, which the chat cannot open, so it cannot run here. It affects listing, picking and creating Power Automate connections. Create or check the connection at https://make.powerautomate.com, then retry the request.",
+  },
+  {
     // Missing admin consent on the bridge's app registration. No user can fix this.
     match: /AADSTS65001|AADSTS650057|AADSTS90094/i,
     text: 'The Power Automate integration is missing a permission that only an administrator can grant. Please report this to IT, including the technical detail below.',
