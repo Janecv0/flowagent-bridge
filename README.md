@@ -165,6 +165,7 @@ own `az login`; a local LibreChat with email login must point at it **without** 
 | `BRIDGE_CLIENT_ID` | — | The bridge's app registration; required in production |
 | `AZURE_CLIENT_ID` | — | Client id of the user-assigned managed identity (unset = system-assigned) |
 | `IDENTITY_ENDPOINT` / `IDENTITY_HEADER` | injected | Managed identity endpoint (Container Apps sets these) |
+| `BRIDGE_CLIENT_SECRET` | — | OBO client secret instead of the managed identity, for hosts without one (Railway test only) |
 | `PORT` | — | Listen port. Takes precedence — most platforms assign the port they route and health-check on here |
 | `FLOWAGENT_BRIDGE_PORT` | `8791` | Listen port fallback, for local runs where `PORT` is already taken |
 | `FLOWAGENT_BRIDGE_HOST` | `::` | Bind address |

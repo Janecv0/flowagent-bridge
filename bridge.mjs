@@ -66,6 +66,11 @@ const PRODUCTION = SHARED_SECRET.length > 0;
 const BRIDGE_CLIENT_ID = process.env.BRIDGE_CLIENT_ID || '';
 /** Client ID of a user-assigned managed identity. Unset means the system-assigned one. */
 const MANAGED_IDENTITY_CLIENT_ID = process.env.AZURE_CLIENT_ID || '';
+/**
+ * OBO client secret, for hosts with no managed identity (the Railway test deployment).
+ * Set, it replaces the managed-identity assertion. Container Apps leaves it unset.
+ */
+const CLIENT_SECRET = process.env.BRIDGE_CLIENT_SECRET || '';
 /** Delegated scope the bridge's app registration exposes; LibreChat's `obo.scopes` asks for it. */
 const REQUIRED_SCOPE = 'access_as_user';
 const AUTHORITY = `https://login.microsoftonline.com/${TENANT_ID}`;
@@ -78,11 +83,12 @@ if (PRODUCTION) {
   // Fail at boot, not on the first tool call: without these every request would be rejected
   // or every token exchange would fail, and the cause would only show up in per-call errors.
   // IDENTITY_ENDPOINT/IDENTITY_HEADER are injected by Container Apps once an identity is assigned.
+  const needsIdentity = !CLIENT_SECRET;
   const missing = [
     !TENANT_ID && 'AZURE_TENANT_ID',
     !BRIDGE_CLIENT_ID && 'BRIDGE_CLIENT_ID',
-    !process.env.IDENTITY_ENDPOINT && 'IDENTITY_ENDPOINT (assign a managed identity)',
-    !process.env.IDENTITY_HEADER && 'IDENTITY_HEADER (assign a managed identity)',
+    needsIdentity && !process.env.IDENTITY_ENDPOINT && 'IDENTITY_ENDPOINT (assign a managed identity or set BRIDGE_CLIENT_SECRET)',
+    needsIdentity && !process.env.IDENTITY_HEADER && 'IDENTITY_HEADER (assign a managed identity or set BRIDGE_CLIENT_SECRET)',
   ].filter(Boolean);
   if (missing.length) {
     console.error(`FATAL: production mode (BRIDGE_SHARED_SECRET set) also requires: ${missing.join(', ')}`);
@@ -313,8 +319,12 @@ async function exchangeOnBehalfOf(assertion, scope) {
       grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
       requested_token_use: 'on_behalf_of',
       client_id: BRIDGE_CLIENT_ID,
-      client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
-      client_assertion: await managedIdentityAssertion(),
+      ...(CLIENT_SECRET
+        ? { client_secret: CLIENT_SECRET }
+        : {
+            client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+            client_assertion: await managedIdentityAssertion(),
+          }),
       assertion,
       scope,
     }),
@@ -624,10 +634,14 @@ if (PRODUCTION) {
   await chmod(TOKEN_SOCKET, 0o600);
   // Not a health check: the identity endpoint is runtime state, and a transient failure here
   // must not wedge /health. Logged so a misconfigured identity shows up in the boot log.
-  managedIdentityAssertion().then(
-    () => log('managed identity: token obtained'),
-    (e) => log(`WARNING: managed identity unavailable — every tool call will fail: ${e.message}`),
-  );
+  if (CLIENT_SECRET) {
+    log('OBO credential: client secret (BRIDGE_CLIENT_SECRET)');
+  } else {
+    managedIdentityAssertion().then(
+      () => log('managed identity: token obtained'),
+      (e) => log(`WARNING: managed identity unavailable — every tool call will fail: ${e.message}`),
+    );
+  }
 }
 
 server.listen(PORT, HOST, () => {
